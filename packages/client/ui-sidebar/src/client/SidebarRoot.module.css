@@ -163,6 +163,20 @@
   display: none;
 }
 
+/* The Tauri titlebar owns the fold control. The Web shell keeps this button,
+   including the collapsed whale swap, unchanged. */
+[data-desktop-titlebar] .toggle {
+  display: none;
+}
+
+[data-desktop-titlebar] .collapsed .logoRow {
+  display: none;
+}
+
+[data-desktop-titlebar] .root.collapsed {
+  padding-top: 12px;
+}
+
 /* Rail icons ride the primary ink (figma rail spec); expanded keeps the
    secondary icon-button ink. */
 .collapsed .iconButton {

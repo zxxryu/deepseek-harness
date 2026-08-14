@@ -40,7 +40,7 @@ for (const dependency of Object.keys(runtimeDependencies).sort()) {
   queue.push(dependency)
 }
 
-const failures: string[] = []
+const failures = new Map<string, string>()
 for (let index = 0; index < queue.length; index += 1) {
   const packageName = queue[index]
   if (packageName === undefined) continue
@@ -51,7 +51,7 @@ for (let index = 0; index < queue.length; index += 1) {
   for (const peer of Object.keys(peers).sort()) {
     if (!workspace.has(peer) || peerMeta[peer]?.optional === true) continue
     if (runtimeDependencies[peer]?.startsWith('workspace:') === true) continue
-    failures.push(`${formatChain(runtimeName, packageName, parents)} -> ${peer}`)
+    if (!failures.has(peer)) failures.set(peer, `${formatChain(runtimeName, packageName, parents)} -> ${peer}`)
   }
   const dependencies = {
     ...current.manifest.dependencies,
@@ -64,16 +64,16 @@ for (let index = 0; index < queue.length; index += 1) {
   }
 }
 
-if (failures.length > 0) {
-  console.error('verify-runtime-closure: required workspace peers are missing from python/sdk-runtime dependencies:')
-  for (const failure of failures) console.error(`  ${failure}`)
+if (failures.size > 0) {
+  console.error(`verify-runtime-closure: required workspace peers are missing from ${runtimeManifestPath} dependencies:`)
+  for (const failure of failures.values()) console.error(`  ${failure}`)
   process.exit(1)
 }
 
 console.log(`verify-runtime-closure: ${queue.length} workspace packages form a closed runtime dependency graph.`)
 
 async function loadWorkspacePackages(): Promise<Map<string, WorkspacePackage>> {
-  const paths = globSync(['packages/*/*/package.json', 'vendor/*/package.json'], { cwd: root })
+  const paths = globSync(['apps/*/package.json', 'packages/*/*/package.json', 'vendor/*/package.json'], { cwd: root })
     .sort()
     .map(relative => resolve(root, relative))
   const result = new Map<string, WorkspacePackage>()

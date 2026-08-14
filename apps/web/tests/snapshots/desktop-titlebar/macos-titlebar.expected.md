@@ -1,0 +1,3 @@
+- toolbar "Window controls":
+  - button "Collapse sidebar":
+    - img

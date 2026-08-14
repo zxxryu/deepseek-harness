@@ -1,3 +1,153 @@
+.desktopShell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-base);
+}
+
+.desktopShell > .frame {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+.titlebar {
+  flex: none;
+  display: grid;
+  height: 48px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-specific-sidebar-fill);
+  user-select: none;
+  transition: grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.titlebar[data-dragging] {
+  transition: none;
+}
+
+.titlebarSidebar {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: transparent;
+  border-right: none;
+}
+
+/* Match iNotes on macOS: native traffic lights occupy the first 70px and the
+   sidebar control follows them. */
+.titlebar[data-platform='macos'] .titlebarSidebar {
+  position: relative;
+  z-index: 1;
+  min-width: 120px;
+  overflow: visible;
+  padding-left: 82px;
+  background: transparent;
+  border-right: none;
+}
+
+/* Native traffic lights disappear in macOS fullscreen. Return their reserved
+   space to the sidebar control and align it with the sidebar's own inset. */
+.titlebar[data-platform='macos'][data-fullscreen] .titlebarSidebar {
+  min-width: 0;
+  overflow: hidden;
+  padding-left: 12px;
+}
+
+.titlebar[data-platform='macos'][data-fullscreen][data-sidebar-collapsed] .titlebarSidebar {
+  padding-left: 10px;
+}
+
+.titlebarSidebarToggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 8px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.titlebarSidebarToggle:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.titlebarMain {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+}
+
+.titlebar[data-platform='macos'] .titlebarMain {
+  justify-content: flex-start;
+  background: transparent;
+}
+
+.titlebarTitle {
+  max-width: calc(100% - 280px);
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.windowControls {
+  position: absolute;
+  inset: 0 0 0 auto;
+  display: flex;
+}
+
+.windowControl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 48px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: default;
+}
+
+.windowControl:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.closeWindow:hover {
+  background: #e81123;
+  color: #fff;
+}
+
+.minimizeIcon {
+  width: 10px;
+  height: 1px;
+  background: currentColor;
+}
+
+.maximizeIcon {
+  width: 9px;
+  height: 9px;
+  border: 1px solid currentColor;
+  box-sizing: border-box;
+}
+
 .frame {
   position: relative; /* anchors the drag handles, which straddle column borders */
   display: grid;
@@ -10,6 +160,16 @@
   transition: grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
+.desktopShell > .frame {
+  background: var(--dsw-specific-sidebar-fill);
+}
+
+.desktopShell > .frame .centerCol {
+  overflow: hidden;
+  background: var(--dsw-alias-bg-base);
+  border-top-left-radius: 15px;
+}
+
 /* Dragging writes widths at pointer cadence; easing them would detach the
    column from the handle. */
 .frame[data-dragging] {
@@ -17,7 +177,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .frame {
+  .frame,
+  .titlebar {
     transition: none;
   }
 }
@@ -26,7 +187,6 @@
   min-width: 0;
   overflow: hidden;
   background: var(--dsw-specific-sidebar-fill);
-  border-right: 1px solid var(--dsw-alias-border-l1);
 }
 
 .centerCol {
@@ -43,7 +203,7 @@
 }
 
 /* The details subtree stays mounted at zero width, so its border must not paint
-   a 1px seam. The collapsed sidebar instead retains a bordered compact rail. */
+   a 1px seam. */
 .frame[data-details-collapsed] .detailsCol {
   border-left: none;
 }

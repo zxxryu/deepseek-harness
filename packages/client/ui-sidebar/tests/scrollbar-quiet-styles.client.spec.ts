@@ -30,4 +30,9 @@ describe('SidebarRoot.module.css quiet column', () => {
     // (ui-workspace), so the column states colour only.
     expect(declarationText).not.toMatch(/scrollbar-gutter/)
   })
+
+  it('cedes the fold control and collapsed brand row to desktop chrome', () => {
+    expect(declarationText).toMatch(/\[data-desktop-titlebar\] \.toggle\s*\{[^{}]*display:\s*none/)
+    expect(declarationText).toMatch(/\[data-desktop-titlebar\] \.collapsed \.logoRow\s*\{[^{}]*display:\s*none/)
+  })
 })

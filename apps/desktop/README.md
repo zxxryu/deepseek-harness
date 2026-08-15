@@ -25,6 +25,10 @@ Build on each target operating system so native Node dependencies match the inst
 pnpm run desktop:build
 ```
 
-Tauri writes the platform installers under `apps/desktop/src-tauri/target/release/bundle/`. macOS signing/notarization and Windows code signing use the standard Tauri environment and CI configuration and are intentionally not supplied with repository credentials.
+Tauri writes the platform installers under `apps/desktop/src-tauri/target/release/bundle/`. Windows builds produce an NSIS `x64-setup.exe`; MSI is not a default target because WiX requires the optional Windows VBSCRIPT feature and a separate numeric installer version for SemVer prereleases. macOS signing/notarization and Windows code signing use the standard Tauri environment and CI configuration and are intentionally not supplied with repository credentials.
 
 The application icon is generated from [`apps/web/public/favicon.svg`](../web/public/favicon.svg), the official DeepSeek mark already used by the Web application.
+
+## Startup diagnostics
+
+The installed host starts Node from the bundled backend directory with a relative CLI entry, so Windows installation paths may contain spaces. Windows release hosts use the GUI subsystem and start Node without a console window. If the backend cannot start, the application shows the failure and the location of `desktop-startup.log`; that file contains the captured backend stdout and stderr.

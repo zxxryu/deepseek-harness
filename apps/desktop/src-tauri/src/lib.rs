@@ -1,32 +1,47 @@
 //! Tauri host that owns the local `dsh web` process and its WebView window.
 
 use std::{
-    io::{BufRead, BufReader, Read},
+    fs::{self, File},
+    io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::{mpsc, Arc, Mutex},
+    sync::{mpsc, mpsc::RecvTimeoutError, Arc, Mutex},
     thread,
     time::Duration,
 };
 use tauri::{Manager, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 const READY_PREFIX: &str = "dsh web: ";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 
 type ManagedChild = Arc<Mutex<Option<Child>>>;
+type SharedLog = Arc<Mutex<File>>;
 
-fn backend_command(app: &tauri::AppHandle) -> Result<(PathBuf, Vec<PathBuf>), String> {
+struct BackendCommand {
+    executable: PathBuf,
+    working_directory: PathBuf,
+    prefix_args: Vec<PathBuf>,
+}
+
+fn backend_command(app: &tauri::AppHandle) -> Result<BackendCommand, String> {
     if let Some(command) = std::env::var_os("DSH_DESKTOP_BACKEND") {
-        return Ok((PathBuf::from(command), Vec::new()));
+        return Ok(BackendCommand {
+            executable: PathBuf::from(command),
+            working_directory: std::env::current_dir()
+                .map_err(|error| format!("cannot locate the working directory: {error}"))?,
+            prefix_args: Vec::new(),
+        });
     }
 
     if cfg!(debug_assertions) {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
-        return Ok((
-            std::env::var_os("DSH_DESKTOP_NODE")
+        return Ok(BackendCommand {
+            executable: std::env::var_os("DSH_DESKTOP_NODE")
                 .map_or_else(|| PathBuf::from("node"), PathBuf::from),
-            vec![root.join("apps/cli/lib/bin.js")],
-        ));
+            working_directory: root.clone(),
+            prefix_args: vec![root.join("apps/cli/lib/bin.js")],
+        });
     }
 
     let backend = app
@@ -34,9 +49,15 @@ fn backend_command(app: &tauri::AppHandle) -> Result<(PathBuf, Vec<PathBuf>), St
         .resource_dir()
         .map_err(|error| format!("cannot locate bundled resources: {error}"))?
         .join("resources/backend");
-    let node = backend.join(if cfg!(windows) { "node.exe" } else { "node" });
-    let entry = backend.join("node_modules/@deepseek-ai/dsh/lib/bin.js");
-    Ok((node, vec![entry]))
+    Ok(release_backend_command(backend))
+}
+
+fn release_backend_command(backend: PathBuf) -> BackendCommand {
+    BackendCommand {
+        executable: backend.join(if cfg!(windows) { "node.exe" } else { "node" }),
+        working_directory: backend,
+        prefix_args: vec![PathBuf::from("node_modules/@deepseek-ai/dsh/lib/bin.js")],
+    }
 }
 
 #[cfg(windows)]
@@ -49,13 +70,38 @@ fn hide_console(command: &mut Command) {
 #[cfg(not(windows))]
 fn hide_console(_command: &mut Command) {}
 
-fn drain<R: Read + Send + 'static>(reader: R, label: &'static str) {
+fn log_line(log: &SharedLog, line: &str) {
+    if let Ok(mut file) = log.lock() {
+        let _ = writeln!(file, "{line}");
+        let _ = file.flush();
+    }
+}
+
+fn startup_log(app: &tauri::AppHandle) -> Option<(SharedLog, PathBuf)> {
+    let directory = app.path().app_log_dir().ok()?;
+    if fs::create_dir_all(&directory).is_err() {
+        return None;
+    }
+    let path = directory.join("desktop-startup.log");
+    match File::create(&path) {
+        Ok(file) => Some((Arc::new(Mutex::new(file)), path)),
+        Err(_) => None,
+    }
+}
+
+fn drain<R: Read + Send + 'static>(reader: R, label: &'static str, log: SharedLog) {
     thread::spawn(move || {
         for line in BufReader::new(reader).lines() {
             match line {
-                Ok(line) => eprintln!("dsh desktop {label}: {line}"),
+                Ok(line) => {
+                    let message = format!("dsh desktop {label}: {line}");
+                    eprintln!("{message}");
+                    log_line(&log, &message);
+                }
                 Err(error) => {
-                    eprintln!("dsh desktop: failed to read backend {label}: {error}");
+                    let message = format!("dsh desktop: failed to read backend {label}: {error}");
+                    eprintln!("{message}");
+                    log_line(&log, &message);
                     break;
                 }
             }
@@ -99,11 +145,20 @@ fn mark_desktop_url(mut url: Url) -> Url {
     url
 }
 
-fn spawn_backend(app: &tauri::AppHandle) -> Result<(Child, Url), String> {
-    let (executable, prefix_args) = backend_command(app)?;
-    let mut command = Command::new(&executable);
+fn spawn_backend(app: &tauri::AppHandle, log: SharedLog) -> Result<(Child, Url), String> {
+    let backend = backend_command(app)?;
+    log_line(
+        &log,
+        &format!(
+            "dsh desktop: starting {} from {}",
+            backend.executable.display(),
+            backend.working_directory.display()
+        ),
+    );
+    let mut command = Command::new(&backend.executable);
     command
-        .args(prefix_args)
+        .current_dir(&backend.working_directory)
+        .args(&backend.prefix_args)
         .args(["web", "--port", "0"])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -112,7 +167,7 @@ fn spawn_backend(app: &tauri::AppHandle) -> Result<(Child, Url), String> {
 
     let mut child = command
         .spawn()
-        .map_err(|error| format!("cannot start {}: {error}", executable.display()))?;
+        .map_err(|error| format!("cannot start {}: {error}", backend.executable.display()))?;
     let stdout = child
         .stdout
         .take()
@@ -121,20 +176,24 @@ fn spawn_backend(app: &tauri::AppHandle) -> Result<(Child, Url), String> {
         .stderr
         .take()
         .ok_or("backend stderr was not captured")?;
-    drain(stderr, "stderr");
+    drain(stderr, "stderr", Arc::clone(&log));
 
     let (sender, receiver) = mpsc::sync_channel(1);
     thread::spawn(move || {
         for line in BufReader::new(stdout).lines() {
             match line {
                 Ok(line) => {
-                    eprintln!("dsh desktop stdout: {line}");
+                    let message = format!("dsh desktop stdout: {line}");
+                    eprintln!("{message}");
+                    log_line(&log, &message);
                     if let Some(url) = parse_ready_url(&line) {
                         let _ = sender.send(url);
                     }
                 }
                 Err(error) => {
-                    eprintln!("dsh desktop: failed to read backend stdout: {error}");
+                    let message = format!("dsh desktop: failed to read backend stdout: {error}");
+                    eprintln!("{message}");
+                    log_line(&log, &message);
                     break;
                 }
             }
@@ -148,12 +207,19 @@ fn spawn_backend(app: &tauri::AppHandle) -> Result<(Child, Url), String> {
             let _ = child.wait();
             Err(error)
         }
-        Err(error) => {
+        Err(RecvTimeoutError::Timeout) => {
             let status = child.try_wait().ok().flatten();
             let _ = child.kill();
             let _ = child.wait();
             Err(format!(
-                "backend did not become ready within 60 seconds ({error}; status: {status:?})"
+                "backend did not become ready within 60 seconds (status: {status:?})"
+            ))
+        }
+        Err(RecvTimeoutError::Disconnected) => {
+            let _ = child.kill();
+            let status = child.wait().ok();
+            Err(format!(
+                "backend output closed before the readiness line (status: {status:?})"
             ))
         }
     }
@@ -176,8 +242,28 @@ pub fn run() {
     let exit_backend = Arc::clone(&backend);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
-            let (child, url) = spawn_backend(app.handle()).map_err(std::io::Error::other)?;
+            let (log, log_path) = startup_log(app.handle()).unwrap_or_else(|| {
+                let path = PathBuf::from("desktop-startup.log unavailable");
+                let file = tempfile_log();
+                (file, path)
+            });
+            let (child, url) = match spawn_backend(app.handle(), Arc::clone(&log)) {
+                Ok(result) => result,
+                Err(error) => {
+                    log_line(&log, &format!("dsh desktop startup failed: {error}"));
+                    app.dialog()
+                        .message(format!(
+                            "DeepSeek Harness could not start.\n\n{error}\n\nLog: {}",
+                            log_path.display()
+                        ))
+                        .title("DeepSeek Harness startup failed")
+                        .kind(MessageDialogKind::Error)
+                        .blocking_show();
+                    return Err(std::io::Error::other(error).into());
+                }
+            };
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
                 .title("DeepSeek Harness")
                 .shadow(true)
@@ -213,9 +299,28 @@ pub fn run() {
         });
 }
 
+fn tempfile_log() -> SharedLog {
+    let path = std::env::temp_dir().join("deepseek-harness-desktop-startup.log");
+    let file = File::create(path)
+        .unwrap_or_else(|error| panic!("cannot create a desktop startup log: {error}"));
+    Arc::new(Mutex::new(file))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{mark_desktop_url, parse_ready_url};
+    use super::{mark_desktop_url, parse_ready_url, release_backend_command};
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn release_backend_uses_a_relative_entry_from_its_install_directory() {
+        let directory = PathBuf::from(r"D:\Program Files\DeepSeek Harness\resources\backend");
+        let command = release_backend_command(directory.clone());
+        assert_eq!(command.working_directory, directory);
+        assert_eq!(
+            command.prefix_args,
+            [Path::new("node_modules/@deepseek-ai/dsh/lib/bin.js")]
+        );
+    }
 
     #[test]
     fn accepts_the_owned_loopback_readiness_line() {

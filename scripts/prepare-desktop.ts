@@ -5,21 +5,35 @@
  */
 
 import { existsSync } from 'node:fs'
-import { chmod, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rm } from 'node:fs/promises'
+import { chmod, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import { spawn } from 'node:child_process'
 
 const root = resolve(import.meta.dirname, '..')
 const desktop = resolve(root, 'apps/desktop')
-const output = resolve(root, 'apps/desktop/src-tauri/resources/backend')
+const output = resolve(root, '.dsh-desktop')
 const sourceNodeModules = resolve(root, 'apps/desktop/node_modules')
+const workspaceState = resolve(root, 'node_modules/.pnpm-workspace-state-v1.json')
 
-function pnpmBin(): string {
-  return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+function pnpmInvocation(args: string[]): [string, string[]] {
+  const entrypoint = process.env.npm_execpath
+  if (entrypoint === undefined || entrypoint === '') {
+    throw new Error('prepare-desktop: npm_execpath is unavailable; invoke this script through a pnpm package script')
+  }
+  return [process.execPath, [entrypoint, ...args]]
 }
 
-function tauriBin(): string {
-  return join(desktop, 'node_modules', '.bin', process.platform === 'win32' ? 'tauri.cmd' : 'tauri')
+function tauriInvocation(args: string[]): [string, string[]] {
+  const entrypoint = join(desktop, 'node_modules', '@tauri-apps', 'cli', 'tauri.js')
+  return [process.execPath, [entrypoint, ...args]]
+}
+
+function tauriBuildArgs(): string[] {
+  const source = `${output}${sep}`
+  const override = { bundle: { resources: { [source]: 'resources/backend/' } } }
+  const args = ['build', '--config', JSON.stringify(override)]
+  if (process.platform === 'win32') args.push('--bundles', 'nsis')
+  return args
 }
 
 async function run(command: string, args: string[], cwd = root): Promise<void> {
@@ -33,6 +47,16 @@ async function run(command: string, args: string[], cwd = root): Promise<void> {
       else reject(new Error(`prepare-desktop: ${command} failed (${code === null ? `signal ${signal ?? 'unknown'}` : `exit ${String(code)}`})`))
     })
   })
+}
+
+async function deploy(args: string[]): Promise<void> {
+  const previousWorkspaceState = existsSync(workspaceState) ? await readFile(workspaceState) : undefined
+  try {
+    await run(...pnpmInvocation(args))
+  } finally {
+    if (previousWorkspaceState === undefined) await rm(workspaceState, { force: true })
+    else await writeFile(workspaceState, previousWorkspaceState)
+  }
 }
 
 async function findSymlink(directory: string): Promise<string | undefined> {
@@ -96,7 +120,7 @@ async function main(): Promise<void> {
   }
 
   await rm(output, { recursive: true, force: true })
-  await run(pnpmBin(), [
+  await deploy([
     '--filter', '@deepseek-ai/dsh-desktop', 'deploy', '--legacy', '--prod',
     '--ignore-scripts',
     '--config.node-linker=hoisted', '--config.auto-install-peers=false',
@@ -115,7 +139,7 @@ async function main(): Promise<void> {
   if (!existsSync(entry)) throw new Error(`prepare-desktop: built CLI entry is missing at ${entry}`)
   console.log(`prepare-desktop: staged ${output}`)
 
-  if (args.includes('--build')) await run(tauriBin(), ['build'], desktop)
+  if (args.includes('--build')) await run(...tauriInvocation(tauriBuildArgs()), desktop)
 }
 
 await main()

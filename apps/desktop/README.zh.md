@@ -25,6 +25,10 @@ pnpm run desktop:dev
 pnpm run desktop:build
 ```
 
-Tauri 将平台安装包写入 `apps/desktop/src-tauri/target/release/bundle/`。macOS 签名和公证以及 Windows 代码签名使用标准 Tauri 环境变量和 CI 配置，仓库不会提供签名凭据。
+Tauri 将平台安装包写入 `apps/desktop/src-tauri/target/release/bundle/`。Windows 构建生成 NSIS `x64-setup.exe`；MSI 不是默认目标，因为 WiX 依赖 Windows 的可选 VBSCRIPT 功能，而且 SemVer 预发布版本需要单独提供纯数字安装包版本。macOS 签名和公证以及 Windows 代码签名使用标准 Tauri 环境变量和 CI 配置，仓库不会提供签名凭据。
 
 应用图标由 [`apps/web/public/favicon.svg`](../web/public/favicon.svg) 生成；该文件是 Web 应用已经使用的 DeepSeek 官方标志。
+
+## 启动诊断
+
+安装后的宿主以随附 backend 目录为工作目录，并通过相对 CLI 入口启动 Node，因此 Windows 安装路径可以包含空格。Windows release 宿主使用 GUI subsystem，并以无控制台窗口方式启动 Node。如果后端无法启动，应用会显示错误与 `desktop-startup.log` 的位置；该文件包含捕获的后端 stdout 和 stderr。

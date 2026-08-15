@@ -264,6 +264,23 @@ describe('AppFrame', () => {
     expect(desktopWindow.close).toHaveBeenCalledOnce()
   })
 
+  it('Windows titlebar renders the banner wordmark expanded and the whale mark collapsed', () => {
+    window.history.replaceState({}, '', '/?dsh-platform=tauri&dsh-os=windows')
+    const { container } = mountFrame()
+    const titlebar = container.querySelector('[role="toolbar"]')
+    // Expanded: the banner wordmark rides the titlebar before the fold control.
+    expect(titlebar?.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+    const toggle = titlebar?.querySelector('button')
+    // The fold control keeps one panel icon and no whale while expanded.
+    expect(toggle?.querySelector('svg[aria-hidden="true"]')).toBeNull()
+
+    fireEvent.click(toggle!)
+    // Collapsed: the whale mark replaces the banner and rests inside the fold
+    // control alongside the (hover-swapped) panel icon — a single button still.
+    expect(titlebar?.querySelectorAll('button')).toHaveLength(4)
+    expect(titlebar?.querySelectorAll('svg[aria-hidden="true"]')).toHaveLength(1)
+  })
+
   it('leaves macOS window controls to the native overlay titlebar and tracks fullscreen', async () => {
     vi.stubGlobal('__TAURI_INTERNALS__', {})
     desktopFullscreen = true

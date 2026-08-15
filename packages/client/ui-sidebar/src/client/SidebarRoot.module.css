@@ -169,6 +169,12 @@
   display: none;
 }
 
+/* Windows moves the whole banner logo into the titlebar, so the sidebar's
+   logo row disappears in both states (the titlebar renders wordmark/whale). */
+[data-desktop-titlebar][data-platform='windows'] .logoRow {
+  display: none;
+}
+
 [data-desktop-titlebar] .collapsed .logoRow {
   display: none;
 }

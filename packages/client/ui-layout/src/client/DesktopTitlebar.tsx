@@ -1,7 +1,10 @@
 /** Tauri-only window chrome rendered above the shared application frame. */
 import { useEffect, useState } from 'react'
 import { getCurrentWindow, type Window as TauriWindow } from '@tauri-apps/api/window'
-import { IconCloseOutline16, IconPanelLeftOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  BrandWordmark, FishLogo,
+  IconCloseOutline16, IconPanelLeftOutline16, Tooltip,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './AppFrame.module.css'
 
 interface DesktopTitlebarProps {
@@ -81,6 +84,12 @@ export function DesktopTitlebar({
       }}
     >
       <div className={css.titlebarSidebar} data-tauri-drag-region>
+        {/* Windows moves the sidebar's banner logo into the titlebar, before
+            the fold control: expanded shows the full wordmark, collapsed
+            rests on the whale mark (the front of the wordmark). */}
+        {platform === 'windows' && !sidebarCollapsed && (
+          <BrandWordmark className={css.titlebarWordmark} />
+        )}
         <Tooltip label={toggleTooltip} delayMs={500}>
           <button
             type="button"
@@ -88,7 +97,13 @@ export function DesktopTitlebar({
             aria-label={toggleLabel}
             onClick={toggleSidebar}
           >
-            <IconPanelLeftOutline16 size={16} />
+            {platform === 'windows' && sidebarCollapsed && (
+              <FishLogo className={css.titlebarFish} size={24} />
+            )}
+            <IconPanelLeftOutline16
+              className={css.titlebarPanelIcon}
+              size={platform === 'windows' && sidebarCollapsed ? 18 : 16}
+            />
           </button>
         </Tooltip>
       </div>

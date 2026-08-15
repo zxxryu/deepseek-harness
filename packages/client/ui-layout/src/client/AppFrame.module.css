@@ -81,6 +81,31 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* Windows moves the sidebar's banner logo into the titlebar, left of the fold
+   control. The wordmark rides the brand ink with no hover chrome; it is part
+   of the drag region, not an interactive control. */
+.titlebarWordmark {
+  flex: none;
+  height: 24px;
+  margin-right: 8px;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Collapsed, the fold control rests on the whale mark (the front of the
+   wordmark) and hovering swaps in the panel icon — the expand affordance,
+   mirroring the web sidebar rail (figma sidebar-hover flow). */
+.titlebar[data-platform='windows'][data-sidebar-collapsed] .titlebarPanelIcon {
+  display: none;
+}
+
+.titlebar[data-platform='windows'][data-sidebar-collapsed] .titlebarSidebarToggle:hover .titlebarPanelIcon {
+  display: inline;
+}
+
+.titlebar[data-platform='windows'][data-sidebar-collapsed] .titlebarSidebarToggle:hover .titlebarFish {
+  display: none;
+}
+
 .titlebarMain {
   position: relative;
   min-width: 0;

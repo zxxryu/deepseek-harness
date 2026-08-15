@@ -84,26 +84,7 @@
 .titlebarMain {
   position: relative;
   min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   background: transparent;
-}
-
-.titlebar[data-platform='macos'] .titlebarMain {
-  justify-content: flex-start;
-  background: transparent;
-}
-
-.titlebarTitle {
-  max-width: calc(100% - 280px);
-  overflow: hidden;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 18px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .windowControls {

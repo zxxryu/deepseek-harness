@@ -1,7 +1,6 @@
 - toolbar "Window controls":
   - button "Collapse sidebar":
     - img
-  - text: DeepSeek Harness
   - button "Minimize window"
   - button "Maximize or restore window"
   - button "Close window":

@@ -240,12 +240,13 @@ describe('AppFrame', () => {
 
   it('renders Windows Tauri controls and drives the shared sidebar state', async () => {
     window.history.replaceState({}, '', '/?dsh-platform=tauri&dsh-os=windows')
-    const { container, getByRole } = mountFrame()
+    const { container, getByRole, queryByText } = mountFrame()
     const shell = container.firstElementChild
     expect(shell?.className).toContain('desktopShell')
 
     const toolbar = getByRole('toolbar', { name: 'Window controls' })
     expect(toolbar.getAttribute('data-tauri-drag-region')).not.toBeNull()
+    expect(queryByText('DeepSeek Harness')).toBeNull()
     fireEvent.click(getByRole('button', { name: 'Collapse sidebar' }))
     const frame = container.querySelector('[data-sidebar-collapsed]')
     expect(frame).not.toBeNull()

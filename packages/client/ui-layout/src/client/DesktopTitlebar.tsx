@@ -93,7 +93,6 @@ export function DesktopTitlebar({
         </Tooltip>
       </div>
       <div className={css.titlebarMain} data-tauri-drag-region>
-        {platform !== 'macos' && <span className={css.titlebarTitle} data-tauri-drag-region>DeepSeek Harness</span>}
         {platform !== 'macos' && <div className={css.windowControls}>
           <button
             type="button"

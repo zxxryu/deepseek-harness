@@ -207,7 +207,7 @@ export function ProducedFiles({
   const onUndo = async (change: ProducedFileChange): Promise<void> => {
     if (undoing !== null || undone.has(change.path) || !canUndo(change)) return
     setUndoing(change.path)
-    setErrors(previous => {
+    setErrors((previous) => {
       const next = new Map(previous)
       next.delete(change.path)
       return next
@@ -237,7 +237,7 @@ export function ProducedFiles({
         <span className={css.count}>{t('produced.files', { count: String(changes.length) })}</span>
       </div>
       <div className={css.table}>
-        {changes.map(change => {
+        {changes.map((change) => {
           const hasDiff = diffText(change) !== undefined
           const isExpanded = expanded === change.path
           const isUndone = undone.has(change.path)

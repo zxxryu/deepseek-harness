@@ -100,13 +100,13 @@ export function applyWriteTool(ctx: Context, sandbox: FsSandboxController): void
         ...value.after.length + (value.before?.length ?? 0) <= 2_000_000
           && (value.operation === 'create' || value.before !== null)
           ? {
-              fileChange: {
-                path: args.file_path,
-                created: value.operation === 'create',
-                before: value.before,
-                after: value.after,
-              },
-            }
+            fileChange: {
+              path: args.file_path,
+              created: value.operation === 'create',
+              before: value.before,
+              after: value.after,
+            },
+          }
           : {},
       }),
     },

@@ -131,7 +131,7 @@ export function changesForClosing(
     row.snapshot = { created: row.snapshot.created, before: row.snapshot.before, after: mutation.snapshot.after }
   }
 
-  return order.map(path => {
+  return order.map((path) => {
     const row = rows.get(path)!
     return {
       path,

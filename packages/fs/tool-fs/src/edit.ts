@@ -109,13 +109,13 @@ export function applyEditTool(ctx: Context, sandbox: FsSandboxController): void 
           .map(({ path, oldText, newText }) => ({ path, oldText, newText })),
         ...value.before.length + value.after.length <= 2_000_000
           ? {
-              fileChange: {
-                path: args.file_path,
-                created: false,
-                before: value.before,
-                after: value.after,
-              },
-            }
+            fileChange: {
+              path: args.file_path,
+              created: false,
+              before: value.before,
+              after: value.after,
+            },
+          }
           : {},
       }),
     },

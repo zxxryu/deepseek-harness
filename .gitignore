@@ -40,3 +40,5 @@ worktrees/
 .agents/worktrees/
 .typert-*/
 .dsh-desktop/
+
+.dsh-desktop_tmp_*/

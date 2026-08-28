@@ -42,4 +42,10 @@ export const en = {
   'markdown.truncatedCharacters': '… truncated at {total} characters',
   'number.thousand': '{value}K',
   'number.million': '{value}M',
+  'desktop.windowControls': 'Window controls',
+  'desktop.collapseSidebar': 'Collapse sidebar',
+  'desktop.openSidebar': 'Open sidebar',
+  'desktop.minimize': 'Minimize window',
+  'desktop.maximizeOrRestore': 'Maximize or restore window',
+  'desktop.closeWindow': 'Close window',
 } satisfies Record<CommonKey, string>

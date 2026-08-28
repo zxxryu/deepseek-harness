@@ -16,9 +16,23 @@ import type {
   PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import { computeColumns, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns.ts'
+import { DesktopTitlebar } from './DesktopTitlebar.tsx'
 import { DocumentTitle } from './DocumentTitle.tsx'
 import type { createLayoutStore } from './stores.ts'
 import css from './AppFrame.module.css'
+
+const DESKTOP_PLATFORM_PARAM = 'dsh-platform'
+const DESKTOP_OS_PARAM = 'dsh-os'
+
+type DesktopPlatform = 'linux' | 'macos' | 'windows'
+
+function desktopPlatform(): DesktopPlatform | undefined {
+  const params = new URLSearchParams(window.location.search)
+  if (params.get(DESKTOP_PLATFORM_PARAM) !== 'tauri') return undefined
+  const platform = params.get(DESKTOP_OS_PARAM)
+  if (platform === 'linux' || platform === 'macos' || platform === 'windows') return platform
+  throw new Error(`Tauri desktop URL has an unsupported ${DESKTOP_OS_PARAM} value`)
+}
 
 /** Full composed props: runtime share + child-slot render share + store share. */
 export type AppFrameProps =
@@ -171,8 +185,20 @@ export function AppFrame({
     actions.setDetails(detailsBase.current - dx)
   }, [actions])
   const productTitle = process.env.DSH_CLIENT_TITLE ?? t('brand.localBuild')
-
-  return (
+  const desktopOs = desktopPlatform()
+  const desktopTitlebar = desktopOs !== undefined
+  useEffect(() => {
+    if (!desktopTitlebar) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      const platformModifier = desktopOs === 'macos' ? event.metaKey : event.ctrlKey
+      if (!platformModifier || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'b') return
+      event.preventDefault()
+      actions.toggleSidebar()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => { window.removeEventListener('keydown', onKeyDown) }
+  }, [actions, desktopOs, desktopTitlebar])
+  const frame = (
     <div
       ref={frameRef}
       className={css.frame}
@@ -185,7 +211,7 @@ export function AppFrame({
         productTitle={productTitle}
         {...documentTitle === undefined ? {} : { title: documentTitle }}
       />
-      <div className={css.sidebarCol}>
+      <div className={css.sidebarCol} data-desktop-titlebar={desktopTitlebar || undefined} data-platform={desktopOs}>
         {/* Render-site slot call with live concession output: a closed
             sidebar keeps the mounted slot at the compact-rail width, and the
             component sees its rendered state as owner params decided here
@@ -213,6 +239,21 @@ export function AppFrame({
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
       {!sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
       {cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
+    </div>
+  )
+
+  if (!desktopTitlebar) return frame
+  return (
+    <div className={css.desktopShell}>
+      <DesktopTitlebar
+        platform={desktopOs}
+        sidebarWidth={cols.sidebar}
+        sidebarCollapsed={sidebarCollapsed}
+        dragging={dragging}
+        toggleSidebar={() => { actions.toggleSidebar() }}
+        t={t}
+      />
+      {frame}
     </div>
   )
 }

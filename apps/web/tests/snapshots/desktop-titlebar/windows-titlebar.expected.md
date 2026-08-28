@@ -1,0 +1,7 @@
+- toolbar "Window controls":
+  - button "Collapse sidebar":
+    - img
+  - button "Minimize window"
+  - button "Maximize or restore window"
+  - button "Close window":
+    - img

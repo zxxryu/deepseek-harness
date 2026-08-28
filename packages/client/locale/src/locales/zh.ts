@@ -40,6 +40,12 @@ export const zh = {
   'markdown.truncatedCharacters': '… 已截断，共 {total} 字符',
   'number.thousand': '{value}K',
   'number.million': '{value}M',
+  'desktop.windowControls': '窗口控制',
+  'desktop.collapseSidebar': '收起侧边栏',
+  'desktop.openSidebar': '打开侧边栏',
+  'desktop.minimize': '最小化窗口',
+  'desktop.maximizeOrRestore': '最大化或还原窗口',
+  'desktop.closeWindow': '关闭窗口',
 } satisfies Record<string, string>
 
 /** The common vocabulary key union (zh is the key-set source of truth). */

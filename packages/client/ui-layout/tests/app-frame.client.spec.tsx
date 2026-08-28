@@ -11,7 +11,7 @@
  * resizes are driven through the ResizeObserver stub.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { AppFrame } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
 import type { AppFrameProps } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
@@ -20,6 +20,21 @@ import { createLayoutStore } from '@deepseek-ai/dsh-client-ui-layout/src/client/
 import type {
   SessionId, SessionListState, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
+
+let desktopFullscreen = false
+let notifyDesktopResize: (() => void) | undefined
+const desktopWindow = {
+  minimize: vi.fn(async () => {}),
+  toggleMaximize: vi.fn(async () => {}),
+  close: vi.fn(async () => {}),
+  isFullscreen: vi.fn(async () => desktopFullscreen),
+  onResized: vi.fn(async (handler: () => void) => {
+    notifyDesktopResize = handler
+    return () => { notifyDesktopResize = undefined }
+  }),
+}
+
+vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => desktopWindow }))
 
 // Session selection controls for the SessionProvider and useSessions stubs.
 const selectedSession = { current: 's-test' as SessionId | undefined }
@@ -111,10 +126,14 @@ function drag(handle: Element, fromX: number, toX: number): void {
 }
 
 beforeEach(() => {
+  window.history.replaceState({}, '', '/')
+  vi.clearAllMocks()
   frameWidth = 1920
   selectedSession.current = 's-test' as SessionId
   selectedSessionBlank.current = false
   baselinesReady.current = true
+  desktopFullscreen = false
+  notifyDesktopResize = undefined
   vi.useFakeTimers()
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => setTimeout(() => { cb(0) }, 16) as unknown as number)
@@ -217,6 +236,83 @@ describe('AppFrame', () => {
   it('sidebar slot receives live concession output as owner props', () => {
     const { slotCalls } = mountFrame()
     expect(slotCalls.find(c => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 280 })
+  })
+
+  it('renders Windows Tauri controls and drives the shared sidebar state', async () => {
+    window.history.replaceState({}, '', '/?dsh-platform=tauri&dsh-os=windows')
+    const { container, getByRole, queryByText } = mountFrame()
+    const shell = container.firstElementChild
+    expect(shell?.className).toContain('desktopShell')
+
+    const toolbar = getByRole('toolbar', { name: 'Window controls' })
+    expect(toolbar.getAttribute('data-tauri-drag-region')).not.toBeNull()
+    expect(queryByText('DeepSeek Harness')).toBeNull()
+    fireEvent.click(getByRole('button', { name: 'Collapse sidebar' }))
+    const frame = container.querySelector('[data-sidebar-collapsed]')
+    expect(frame).not.toBeNull()
+    expect(getByRole('button', { name: 'Open sidebar' })).toBeTruthy()
+    fireEvent.keyDown(window, { key: 'b', ctrlKey: true })
+    expect(container.querySelector('[data-sidebar-collapsed]')).toBeNull()
+
+    fireEvent.click(getByRole('button', { name: 'Minimize window' }))
+    fireEvent.click(getByRole('button', { name: 'Maximize or restore window' }))
+    fireEvent.doubleClick(toolbar)
+    fireEvent.click(getByRole('button', { name: 'Close window' }))
+    await act(async () => { await Promise.resolve() })
+    expect(desktopWindow.minimize).toHaveBeenCalledOnce()
+    expect(desktopWindow.toggleMaximize).toHaveBeenCalledTimes(2)
+    expect(desktopWindow.close).toHaveBeenCalledOnce()
+  })
+
+  it('Windows titlebar renders the banner wordmark expanded and the whale mark collapsed', () => {
+    window.history.replaceState({}, '', '/?dsh-platform=tauri&dsh-os=windows')
+    const { container } = mountFrame()
+    const titlebar = container.querySelector('[role="toolbar"]')
+    // Expanded: the banner wordmark rides the titlebar before the fold control.
+    expect(titlebar?.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+    const toggle = titlebar?.querySelector('button')
+    // The fold control keeps one panel icon and no whale while expanded.
+    expect(toggle?.querySelector('svg[aria-hidden="true"]')).toBeNull()
+
+    fireEvent.click(toggle!)
+    // Collapsed: the whale mark replaces the banner and rests inside the fold
+    // control alongside the (hover-swapped) panel icon — a single button still.
+    expect(titlebar?.querySelectorAll('button')).toHaveLength(4)
+    expect(titlebar?.querySelectorAll('svg[aria-hidden="true"]')).toHaveLength(1)
+  })
+
+  it('leaves macOS window controls to the native overlay titlebar and tracks fullscreen', async () => {
+    vi.stubGlobal('__TAURI_INTERNALS__', {})
+    desktopFullscreen = true
+    window.history.replaceState({}, '', '/?dsh-platform=tauri&dsh-os=macos')
+    const { container, getByRole, queryByRole } = mountFrame()
+    const toolbar = getByRole('toolbar', { name: 'Window controls' })
+    await act(async () => { await Promise.resolve() })
+    expect(toolbar.getAttribute('data-platform')).toBe('macos')
+    expect(toolbar.getAttribute('data-fullscreen')).not.toBeNull()
+    expect(queryByRole('button', { name: 'Minimize window' })).toBeNull()
+    expect(queryByRole('button', { name: 'Maximize or restore window' })).toBeNull()
+    expect(queryByRole('button', { name: 'Close window' })).toBeNull()
+
+    const collapse = getByRole('button', { name: 'Collapse sidebar' })
+    fireEvent.mouseEnter(collapse)
+    act(() => { vi.advanceTimersByTime(500) })
+    expect(getByRole('tooltip').textContent).toBe('Collapse sidebar (⌘B)')
+    fireEvent.click(collapse)
+    expect(container.querySelector('[data-sidebar-collapsed]')).not.toBeNull()
+    expect(getByRole('button', { name: 'Open sidebar' })).toBeTruthy()
+    expect(toolbar.getAttribute('data-sidebar-collapsed')).not.toBeNull()
+    fireEvent.keyDown(window, { key: 'b', ctrlKey: true })
+    expect(container.querySelector('[data-sidebar-collapsed]')).not.toBeNull()
+    fireEvent.keyDown(window, { key: 'b', metaKey: true })
+    expect(container.querySelector('[data-sidebar-collapsed]')).toBeNull()
+
+    desktopFullscreen = false
+    await act(async () => {
+      notifyDesktopResize?.()
+      await Promise.resolve()
+    })
+    expect(toolbar.getAttribute('data-fullscreen')).toBeNull()
   })
 
   it('sidebar drag widens through rAF-batched pointer moves', () => {

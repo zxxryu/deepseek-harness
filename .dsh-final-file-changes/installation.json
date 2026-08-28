@@ -1,0 +1,11 @@
+{
+  "kit": "dsh-final-file-changes",
+  "version": "3.4.0",
+  "installedAt": "2026-08-16T10:23:05.120Z",
+  "backupRoot": "/Users/liuzixiang/Development/deepseek-harness/.dsh-final-file-changes-v3-backup/2026-08-16T10-23-04-960Z",
+  "runtimeRoots": [
+    "apps/cli/package.json",
+    "apps/desktop/package.json"
+  ],
+  "runtimeRootDependenciesAdded": {}
+}

@@ -1,0 +1,11 @@
+# Standalone layer for @deepseek-ai/dsh-file-changes.
+#
+# Install this bundle into a dsh profile (`dsh plugin add <path|tarball|package>`)
+# so the profile gains the Host Remote that the produced-files surface uses to
+# undo one Agent-produced text-file change. The row activates only when the
+# profile also provides the fs, sessions, and typert services (the dsh-base
+# bundle supplies all three), so a headless profile without typert leaves this
+# row inert.
+- insert:
+    - id: file-changes
+      name: '@deepseek-ai/dsh-file-changes'

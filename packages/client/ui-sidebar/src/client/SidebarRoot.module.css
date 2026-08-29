@@ -227,13 +227,8 @@
   display: none;
 }
 
-/* Windows moves the whole banner logo into the titlebar, so the sidebar's
-   logo row disappears in both states (the titlebar renders wordmark/whale). */
-[data-desktop-titlebar][data-platform='windows'] .logoRow {
-  display: none;
-}
-
-[data-desktop-titlebar] .collapsed .logoRow {
+/* Desktop chrome owns the brand and fold control above the application frame. */
+[data-desktop-titlebar] .logoRow {
   display: none;
 }
 

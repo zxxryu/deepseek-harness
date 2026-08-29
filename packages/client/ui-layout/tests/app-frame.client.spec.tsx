@@ -456,7 +456,7 @@ describe('AppFrame — guard branches', () => {
 
 describe('AppFrame — Tauri desktop titlebar', () => {
   it('renders Windows Tauri controls and drives the shared sidebar state', async () => {
-    window.history.replaceState({}, '', '/?dsh-platform=tauri&dsh-os=windows')
+    window.history.replaceState({}, '', '/#dsh-platform=tauri&dsh-os=windows')
     const { container, getByRole, queryByText } = mountFrame()
     const shell = container.firstElementChild
     expect(shell?.className).toContain('desktopShell')
@@ -482,7 +482,7 @@ describe('AppFrame — Tauri desktop titlebar', () => {
   })
 
   it('renders Linux Tauri controls with the plain panel fold control', () => {
-    window.history.replaceState({}, '', '/?dsh-platform=tauri&dsh-os=linux')
+    window.history.replaceState({}, '', '/#dsh-platform=tauri&dsh-os=linux')
     const { container, getByRole } = mountFrame()
     const shell = container.firstElementChild
     expect(shell?.className).toContain('desktopShell')
@@ -498,7 +498,7 @@ describe('AppFrame — Tauri desktop titlebar', () => {
   })
 
   it('Windows titlebar renders the banner wordmark expanded and the whale mark collapsed', () => {
-    window.history.replaceState({}, '', '/?dsh-platform=tauri&dsh-os=windows')
+    window.history.replaceState({}, '', '/#dsh-platform=tauri&dsh-os=windows')
     const { container } = mountFrame()
     const titlebar = container.querySelector('[role="toolbar"]')
     // Expanded: the banner wordmark rides the titlebar before the fold control.
@@ -514,10 +514,10 @@ describe('AppFrame — Tauri desktop titlebar', () => {
     expect(titlebar?.querySelectorAll('svg[aria-hidden="true"]')).toHaveLength(1)
   })
 
-  it('leaves macOS window controls to the native overlay titlebar and tracks fullscreen', async () => {
+  it('renders the macOS brand beside native traffic lights and tracks fullscreen', async () => {
     vi.stubGlobal('__TAURI_INTERNALS__', {})
     desktopState.fullscreen = true
-    window.history.replaceState({}, '', '/?dsh-platform=tauri&dsh-os=macos')
+    window.history.replaceState({}, '', '/#dsh-platform=tauri&dsh-os=macos')
     const { container, getByRole, queryByRole } = mountFrame()
     const toolbar = getByRole('toolbar', { name: 'Window controls' })
     await act(async () => { await Promise.resolve() })
@@ -526,12 +526,18 @@ describe('AppFrame — Tauri desktop titlebar', () => {
     expect(queryByRole('button', { name: 'Minimize window' })).toBeNull()
     expect(queryByRole('button', { name: 'Maximize or restore window' })).toBeNull()
     expect(queryByRole('button', { name: 'Close window' })).toBeNull()
+    expect(toolbar.querySelector('[class*="titlebarWordmark"]')).not.toBeNull()
 
     const collapse = getByRole('button', { name: 'Collapse sidebar' })
     fireEvent.mouseEnter(collapse)
     act(() => { vi.advanceTimersByTime(500) })
     expect(getByRole('tooltip').textContent).toBe('Collapse sidebar (⌘B)')
     expect(container.querySelector('[data-sidebar-collapsed]')).toBeNull()
+
+    fireEvent.click(collapse)
+    expect(toolbar.querySelector('[class*="titlebarWordmark"]')).toBeNull()
+    expect(toolbar.querySelector('[class*="titlebarFish"]')).not.toBeNull()
+    fireEvent.click(getByRole('button', { name: 'Open sidebar' }))
 
     desktopState.fullscreen = false
     await act(async () => {
@@ -543,7 +549,7 @@ describe('AppFrame — Tauri desktop titlebar', () => {
 
   it('does not observe fullscreen outside a Tauri WebView', () => {
     delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
-    window.history.replaceState({}, '', '/?dsh-platform=tauri&dsh-os=macos')
+    window.history.replaceState({}, '', '/#dsh-platform=tauri&dsh-os=macos')
     const { getByRole } = mountFrame()
     const toolbar = getByRole('toolbar', { name: 'Window controls' })
     expect(toolbar.getAttribute('data-fullscreen')).toBeNull()
@@ -551,7 +557,7 @@ describe('AppFrame — Tauri desktop titlebar', () => {
   })
 
   it('rejects an unsupported desktop platform marker', () => {
-    window.history.replaceState({}, '', '/?dsh-platform=tauri&dsh-os=solaris')
+    window.history.replaceState({}, '', '/#dsh-platform=tauri&dsh-os=solaris')
     expect(() => mountFrame()).toThrow(/unsupported dsh-os/)
   })
 
@@ -559,7 +565,7 @@ describe('AppFrame — Tauri desktop titlebar', () => {
     const error = new Error('window action denied')
     desktopWindow.minimize.mockRejectedValueOnce(error)
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    window.history.replaceState({}, '', '/?dsh-platform=tauri&dsh-os=windows')
+    window.history.replaceState({}, '', '/#dsh-platform=tauri&dsh-os=windows')
     const { getByRole } = mountFrame()
     fireEvent.click(getByRole('button', { name: 'Minimize window' }))
     await act(async () => { await Promise.resolve() })

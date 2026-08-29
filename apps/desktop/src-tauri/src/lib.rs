@@ -139,9 +139,7 @@ fn mark_desktop_url(mut url: Url) -> Url {
     } else {
         "linux"
     };
-    url.query_pairs_mut()
-        .append_pair("dsh-platform", "tauri")
-        .append_pair("dsh-os", os);
+    url.set_fragment(Some(&format!("dsh-platform=tauri&dsh-os={os}")));
     url
 }
 
@@ -159,7 +157,7 @@ fn spawn_backend(app: &tauri::AppHandle, log: SharedLog) -> Result<(Child, Url),
     command
         .current_dir(&backend.working_directory)
         .args(&backend.prefix_args)
-        .args(["web", "--port", "0"])
+        .args(["web", "--no-open", "--port", "0"])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -352,7 +350,7 @@ mod tests {
         };
         assert_eq!(
             mark_desktop_url(url).as_str(),
-            format!("http://127.0.0.1:43123/?dsh-platform=tauri&dsh-os={os}")
+            format!("http://127.0.0.1:43123/#dsh-platform=tauri&dsh-os={os}")
         );
     }
 }

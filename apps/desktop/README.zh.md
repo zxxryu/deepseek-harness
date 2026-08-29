@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-本 package 使用 Tauri 包装随附的 `dsh web` 应用。Rust 宿主在操作系统分配的环回端口上启动真实 Harness 后端，等待其就绪行，并仅在 HTTP API 和前端可用后创建 WebView。关闭应用会终止后端进程并等待其结束。
+本 package 使用 Tauri 包装随附的 `dsh web` 应用。Rust 宿主使用 `--no-open` 在操作系统分配的环回端口上启动真实 Harness 后端，使 Tauri WebView 成为唯一的应用窗口。宿主等待后端就绪行，并仅在 HTTP API 和前端可用后创建 WebView。宿主把桌面平台标记放在 URL fragment 中；这些标记仅供客户端读取，并且会在启动 token 重定向到 `/` 后保留。关闭应用会终止后端进程并等待其结束。
 
-桌面 WebView 在 macOS、Windows 和 Linux 上使用平台专用 Tauri 窗口框架和统一的 48px 应用标题栏。标题栏与无右边框的侧边栏使用相同填充色，对话区域从标题栏下方开始，并带有 15px 左上圆角。侧边栏开关在 macOS 上使用 `Command+B`，在 Windows 和 Linux 上使用 `Control+B`。macOS overlay 保留原生交通灯与系统窗口圆角，使控件上下居中，并让侧边栏开关像 iNotes 一样位于交通灯按钮组右侧。进入 macOS 全屏后，原生交通灯会消失；此时开关取消这段内边距，并与展开侧边栏的左边缘或收起轨道的图标列对齐。Windows 和 Linux 使用无边框窗口，最小化、最大化或还原以及关闭控件位于右侧。Tauri 只在主窗口显示所属的 `http://127.0.0.1:*` 后端时授予这些操作权限。普通浏览器应用保留原有侧边栏控件，不渲染桌面窗口框架。
+桌面 WebView 在 macOS、Windows 和 Linux 上使用平台专用 Tauri 窗口框架和统一的 48px 应用标题栏。标题栏与无右边框的侧边栏使用相同填充色，对话区域从标题栏下方开始，并带有 15px 左上圆角。侧边栏开关在 macOS 上使用 `Command+B`，在 Windows 和 Linux 上使用 `Control+B`。在 macOS 和 Windows 上，展开状态的标题栏会在收起按钮旁显示 DeepSeek Harness wordmark；收起状态的按钮会显示 DeepSeek 鲸鱼图标，并在 hover 时换成展开图标。macOS overlay 保留原生交通灯与系统窗口圆角，并把标题栏品牌和控件放在交通灯按钮组右侧。进入 macOS 全屏后，原生交通灯会消失；此时控件取消这段内边距，并与展开侧边栏的左边缘或收起轨道的图标列对齐。Windows 和 Linux 使用无边框窗口，最小化、最大化或还原以及关闭控件位于右侧。Tauri 只在主窗口显示所属的 `http://127.0.0.1:*` 后端时授予这些操作权限。普通浏览器应用保留原有侧边栏控件，不渲染桌面窗口框架。
 
 ## 开发
 

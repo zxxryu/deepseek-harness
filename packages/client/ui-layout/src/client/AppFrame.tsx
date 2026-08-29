@@ -27,7 +27,7 @@ const DESKTOP_OS_PARAM = 'dsh-os'
 type DesktopPlatform = 'linux' | 'macos' | 'windows'
 
 function desktopPlatform(): DesktopPlatform | undefined {
-  const params = new URLSearchParams(window.location.search)
+  const params = new URLSearchParams(window.location.hash.slice(1))
   if (params.get(DESKTOP_PLATFORM_PARAM) !== 'tauri') return undefined
   const platform = params.get(DESKTOP_OS_PARAM)
   if (platform === 'linux' || platform === 'macos' || platform === 'windows') return platform

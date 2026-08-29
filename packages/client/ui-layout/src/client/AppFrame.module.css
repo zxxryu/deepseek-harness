@@ -107,12 +107,10 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* Windows moves the sidebar's banner logo into the titlebar, left of the fold
-   control. The wordmark rides the brand ink with no hover chrome; it is part
-   of the drag region, not an interactive control. */
+/* macOS and Windows move the sidebar brand into the titlebar. The wordmark
+   rides the brand ink with no hover chrome and remains part of the drag region. */
 .titlebarWordmark {
   flex: none;
-  height: 24px;
   margin-right: 8px;
   color: var(--dsw-alias-label-primary);
 }
@@ -120,15 +118,19 @@
 /* Collapsed, the fold control rests on the whale mark (the front of the
    wordmark) and hovering swaps in the panel icon — the expand affordance,
    mirroring the web sidebar rail (figma sidebar-hover flow). */
-.titlebar[data-platform='windows'][data-sidebar-collapsed] .titlebarPanelIcon {
+.titlebar:is([data-platform='macos'], [data-platform='windows']) .titlebarSidebarToggle {
+  margin-left: auto;
+}
+
+.titlebar:is([data-platform='macos'], [data-platform='windows'])[data-sidebar-collapsed] .titlebarPanelIcon {
   display: none;
 }
 
-.titlebar[data-platform='windows'][data-sidebar-collapsed] .titlebarSidebarToggle:hover .titlebarPanelIcon {
+.titlebar:is([data-platform='macos'], [data-platform='windows'])[data-sidebar-collapsed] .titlebarSidebarToggle:hover .titlebarPanelIcon {
   display: inline;
 }
 
-.titlebar[data-platform='windows'][data-sidebar-collapsed] .titlebarSidebarToggle:hover .titlebarFish {
+.titlebar:is([data-platform='macos'], [data-platform='windows'])[data-sidebar-collapsed] .titlebarSidebarToggle:hover .titlebarFish {
   display: none;
 }
 

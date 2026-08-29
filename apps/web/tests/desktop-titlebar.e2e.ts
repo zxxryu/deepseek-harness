@@ -29,7 +29,7 @@ describe('web e2e: Tauri desktop titlebar', () => {
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(`${scaffold.baseUrl}?dsh-platform=tauri&dsh-os=macos`, { waitUntil: 'load' })
+    await page.goto(`${scaffold.authenticatedUrl}#dsh-platform=tauri&dsh-os=macos`, { waitUntil: 'load' })
     await page.getByRole('toolbar', { name: 'Window controls' }).waitFor({ timeout: 30_000 })
   }, 120_000)
 
@@ -43,7 +43,11 @@ describe('web e2e: Tauri desktop titlebar', () => {
     const toolbar = page.getByRole('toolbar', { name: 'Window controls' })
     expect(await toolbar.getAttribute('data-tauri-drag-region')).not.toBeNull()
     expect(await toolbar.getAttribute('data-platform')).toBe('macos')
+    expect(new URL(page.url()).search).toBe('')
+    expect(new URL(page.url()).hash).toBe('#dsh-platform=tauri&dsh-os=macos')
     expect(await page.getByRole('button', { name: 'Collapse sidebar' }).count()).toBe(1)
+    expect(await page.getByRole('button', { name: 'New session' }).count()).toBe(1)
+    expect(await toolbar.locator('[class*="titlebarWordmark"]').isVisible()).toBe(true)
     expect(await page.getByRole('button', { name: 'Minimize window' }).count()).toBe(0)
 
     const geometry = await page.evaluate(() => {
@@ -68,14 +72,15 @@ describe('web e2e: Tauri desktop titlebar', () => {
       titlebarTop: 0,
       titlebarHeight: 48,
       frameTop: 48,
-      toggleLeft: 82,
+      toggleLeft: 234,
       toggleTop: 6,
       toggleHeight: 36,
       centerTopLeftRadius: '15px',
     })
 
     await toolbar.evaluate((element) => { element.setAttribute('data-fullscreen', '') })
-    expect(await toolbar.locator('button').first().evaluate(element => element.getBoundingClientRect().left)).toBe(12)
+    expect(await toolbar.locator('[class*="titlebarWordmark"]').evaluate(element => element.getBoundingClientRect().left)).toBe(12)
+    expect(await toolbar.locator('button').first().evaluate(element => element.getBoundingClientRect().left)).toBe(234)
     await toolbar.evaluate((element) => { element.removeAttribute('data-fullscreen') })
 
     const snapshot = await captureStableAria(page, '[role="toolbar"]', scaffold.workspaceCwd)
@@ -143,9 +148,13 @@ describe('web e2e: Tauri desktop titlebar', () => {
       width: element.getBoundingClientRect().width,
       height: element.getBoundingClientRect().height,
     }))
+    expect(await toolbar.locator('[class*="titlebarFish"]').isVisible()).toBe(true)
+    expect(await toolbar.locator('[class*="titlebarPanelIcon"]').isVisible()).toBe(false)
     await toggle.hover()
     await page.getByRole('tooltip').waitFor({ timeout: 2_000 })
     expect(await page.getByRole('tooltip').textContent()).toBe('Open sidebar (⌘B)')
+    expect(await toolbar.locator('[class*="titlebarFish"]').isVisible()).toBe(false)
+    expect(await toolbar.locator('[class*="titlebarPanelIcon"]').isVisible()).toBe(true)
     const toggleHover = await toggle.evaluate(element => ({
       background: getComputedStyle(element).backgroundColor,
       radius: getComputedStyle(element).borderRadius,
@@ -170,7 +179,8 @@ describe('web e2e: Tauri desktop titlebar', () => {
   })
 
   it('keeps custom window controls on Windows', async () => {
-    await page.goto(`${scaffold.baseUrl}?dsh-platform=tauri&dsh-os=windows`, { waitUntil: 'load' })
+    await page.goto(`${scaffold.baseUrl}#dsh-platform=tauri&dsh-os=windows`, { waitUntil: 'load' })
+    await page.reload({ waitUntil: 'load' })
     const toolbar = page.getByRole('toolbar', { name: 'Window controls' })
     await toolbar.waitFor()
     expect(await toolbar.getAttribute('data-platform')).toBe('windows')

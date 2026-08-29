@@ -41,6 +41,7 @@ export function DesktopTitlebar({
   t,
 }: DesktopTitlebarProps) {
   const [fullscreen, setFullscreen] = useState(false)
+  const brandedSidebar = platform === 'macos' || platform === 'windows'
   const toggleLabel = t(sidebarCollapsed ? 'desktop.openSidebar' : 'desktop.collapseSidebar')
   const toggleTooltip = `${toggleLabel} (${platform === 'macos' ? '⌘B' : 'Ctrl+B'})`
 
@@ -82,11 +83,11 @@ export function DesktopTitlebar({
       }}
     >
       <div className={css.titlebarSidebar} data-tauri-drag-region>
-        {/* Windows moves the sidebar's banner logo into the titlebar, before
-            the fold control: expanded shows the full wordmark, collapsed
-            rests on the whale mark (the front of the wordmark). */}
-        {platform === 'windows' && !sidebarCollapsed && (
-          <BrandWordmark className={css.titlebarWordmark} />
+        {/* Desktop chrome moves the sidebar brand into the titlebar: expanded
+            shows the full wordmark, while the collapsed control rests on the
+            whale mark. Linux keeps the plain panel control. */}
+        {brandedSidebar && !sidebarCollapsed && (
+          <BrandWordmark className={css.titlebarWordmark} size={platform === 'macos' ? 18 : 24} />
         )}
         <Tooltip label={toggleTooltip} delayMs={500}>
           <button
@@ -95,12 +96,12 @@ export function DesktopTitlebar({
             aria-label={toggleLabel}
             onClick={toggleSidebar}
           >
-            {platform === 'windows' && sidebarCollapsed && (
+            {brandedSidebar && sidebarCollapsed && (
               <FishLogo className={css.titlebarFish} size={24} />
             )}
             <IconPanelLeftOutline16
               className={css.titlebarPanelIcon}
-              size={platform === 'windows' && sidebarCollapsed ? 18 : 16}
+              size={brandedSidebar && sidebarCollapsed ? 18 : 16}
             />
           </button>
         </Tooltip>

@@ -23,6 +23,7 @@ The desktop work exists as four **local, unmerged commits** on top of the releas
 3. Owns the child process through application exit: teardown kills a live child and waits for it.
 4. Stores `dsh-platform=tauri` and `dsh-os=<macos|windows|linux>` in the WebView URL fragment. The fragment survives the launch-token redirect without reaching the backend. The shared web layout renders the 48px platform titlebar **only** for those markers; plain browser launches keep the ordinary sidebar control and no window chrome.
 5. Ships a self-contained installer: the target platform's Node executable plus a symlink-free production dependency closure, staged by `scripts/prepare-desktop.ts`.
+6. Owns a native tray icon: closing the main window hides it, `显示窗口` restores it, and `退出程序` kills and waits for the backend before exiting.
 
 Security posture: the WebView receives only window-control permissions (close, minimize, toggle-maximize, start-dragging), scoped to the owned `http://127.0.0.1:*` origin — no filesystem, shell, process, or application commands.
 
@@ -62,7 +63,7 @@ Apply only the missing pieces; do not duplicate what survived. Every path below 
 
 - `apps/desktop/package.json` — name `@deepseek-ai/dsh-desktop`, `"type": "module"`, version equal to the current `dsh` release, `files` allowlist (`frontend`, `src-tauri/capabilities`, `src-tauri/icons`, `src-tauri/src`, `src-tauri/Cargo.lock`, `src-tauri/Cargo.toml`, `src-tauri/build.rs`, `src-tauri/tauri.conf.json`), scripts `dev`/`build` (`tauri dev` / `tauri build`), devDependency `@tauri-apps/cli`. The `dependencies` block must declare the **entire workspace runtime closure** (mirroring what the web app needs, `@deepseek-ai/dsh` plus every `dsh-*` service and client package) — this is the closure `pnpm deploy` stages into the installer. See `../../../apps/desktop/package.json`.
 - `apps/desktop/frontend/index.html` — minimal HTML stub; the real UI is the external backend URL, so there is no Vite build.
-- `apps/desktop/src-tauri/Cargo.toml` — package `deepseek-harness-desktop`, version synced to the `dsh` release, edition 2021, `rust-version = "1.77.2"`, lib name `deepseek_harness_desktop_lib` with `crate-type = ["staticlib", "cdylib", "rlib"]`, build-dependency `tauri-build = "2"`, dependencies `tauri = "2"` and `tauri-plugin-dialog = "2"`.
+- `apps/desktop/src-tauri/Cargo.toml` — package `deepseek-harness-desktop`, version synced to the `dsh` release, edition 2021, `rust-version = "1.77.2"`, lib name `deepseek_harness_desktop_lib` with `crate-type = ["staticlib", "cdylib", "rlib"]`, build-dependency `tauri-build = "2"`, dependencies `tauri = { version = "2", features = ["tray-icon"] }` and `tauri-plugin-dialog = "2"`.
 - `apps/desktop/src-tauri/build.rs` — `fn main() { tauri_build::build() }`.
 - `apps/desktop/src-tauri/tauri.conf.json` — `productName: "DeepSeek Harness"`, `version` synced to the `dsh` release, `identifier: "com.deepseek.harness"`, `build.frontendDist: "../frontend"`, `app.windows: []` (windows are created in Rust), `app.security.csp: null`, `bundle.targets: "all"`, `bundle.resources: ["resources"]`, icon list covering 32/128/@2x PNG, ICNS, ICO. The build-time config override (see §3) remaps the staged closure into `resources/backend/`.
 - `apps/desktop/src-tauri/capabilities/desktop.json` — window `"main"`, `remote.urls: ["http://127.0.0.1:*"]`, permissions `core:default` + `core:window:allow-close` + `allow-minimize` + `allow-start-dragging` + `allow-toggle-maximize`. Do not widen these.
@@ -90,7 +91,8 @@ fn main() {
 - `spawn_backend()`: always pass `--no-open`; `stdin` null, stdout/stderr piped; `CREATE_NO_WINDOW` (`0x0800_0000`) on Windows; continuously drain both streams into `desktop-startup.log` in the app log directory (fall back to a temp file); parse the readiness line from stdout; on timeout / early exit / closed output, kill the child and fail with a **native error dialog** (tauri-plugin-dialog, `blocking_show`) that shows the failure and the log path.
 - `mark_desktop_url()`: store `dsh-platform=tauri` and `dsh-os` (`macos` | `windows` | `linux` from compile target) in the URL fragment via `set_fragment`; browser authentication redirects the token-bearing request to `/` while retaining that client-only fragment.
 - Window: title "DeepSeek Harness", `shadow(true)`, `inner_size(1280, 820)`, `min_inner_size(900, 620)`. macOS: `decorations(true)` + `TitleBarStyle::Overlay` + `hidden_title(true)` + `traffic_light_position(12, 26)`. Windows/Linux: `decorations(false)`.
-- Lifecycle: `ManagedChild = Arc<Mutex<Option<Child>>>`; on `RunEvent::Exit | ExitRequested`, kill a live child and wait.
+- Tray: build it from the default bundled application icon with native menu items `显示窗口` and `退出程序`; a main-window close request prevents destruction and hides the window; show restores, unminimizes, and focuses it; quit synchronously kills and waits for the `ManagedChild` before calling `app.exit(0)`.
+- Lifecycle: `ManagedChild = Arc<Mutex<Option<Child>>>`; tray quit and `RunEvent::Exit | ExitRequested` kill a live child and wait. The second cleanup is an idempotent no-op because the first takes the child from the option.
 - Keep the unit tests: release backend command uses a relative entry from an install directory containing spaces; readiness parsing accepts the loopback line and rejects non-loopback URLs; the marker URL is exact.
 
 ### 3. Staging script and repository wiring
@@ -150,7 +152,7 @@ pnpm run desktop:prepare                       # stages .dsh-desktop, verifies C
 pnpm run desktop:build                         # per target OS; Windows -> NSIS x64-setup.exe
 ```
 
-`desktop:build` must run **on each target operating system** so Node and native dependencies match the installer. Manual smoke per platform: titlebar renders 48px with the platform controls; `Cmd/Ctrl+B` toggles the sidebar; macOS fullscreen releases the traffic-light inset; Windows shows wordmark/whale; closing the app terminates the backend.
+`desktop:build` must run **on each target operating system** so Node and native dependencies match the installer. Manual smoke per platform: titlebar renders 48px with the platform controls; `Cmd/Ctrl+B` toggles the sidebar; macOS fullscreen releases the traffic-light inset; Windows shows wordmark/whale; closing the main window hides it; the tray restores it; tray quit terminates both the backend and desktop process.
 
 ## Red lines
 
@@ -158,4 +160,5 @@ pnpm run desktop:build                         # per target OS; Windows -> NSIS 
 - Never widen Tauri permissions beyond the four window controls on the loopback origin; the backend continues to own Host-header trust, API routing, persistence, credentials, and sandbox policy.
 - Keep the NSIS default on Windows; do not switch to MSI without updating the README and the Agent Note (WiX VBSCRIPT + SemVer version constraints).
 - The host runs the real `dsh web --no-open --port 0` backend — never a mock; installers must stay self-contained (bundled Node, no user Node/pnpm).
+- Tray quit must synchronously kill and wait for the owned backend before the desktop process exits; window close only hides the reusable main WebView.
 - Do not commit credentials or signing secrets; signing/notarization stays in CI or external configuration.

@@ -4,16 +4,22 @@ use std::{
     fs::{self, File},
     io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Child, Command, ExitStatus, Stdio},
     sync::{mpsc, mpsc::RecvTimeoutError, Arc, Mutex},
     thread,
     time::Duration,
 };
-use tauri::{Manager, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::TrayIconBuilder,
+    Manager, Url, WebviewUrl, WebviewWindowBuilder,
+};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 const READY_PREFIX: &str = "dsh web: ";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
+const TRAY_SHOW_WINDOW_ID: &str = "tray-show-window";
+const TRAY_QUIT_ID: &str = "tray-quit";
 
 type ManagedChild = Arc<Mutex<Option<Child>>>;
 type SharedLog = Arc<Mutex<File>>;
@@ -223,14 +229,50 @@ fn spawn_backend(app: &tauri::AppHandle, log: SharedLog) -> Result<(Child, Url),
     }
 }
 
-fn stop_backend(child: &ManagedChild) {
-    let Some(mut child) = child.lock().expect("backend mutex poisoned").take() else {
-        return;
-    };
+fn stop_backend(child: &ManagedChild) -> Option<ExitStatus> {
+    let mut child = child.lock().expect("backend mutex poisoned").take()?;
     if child.try_wait().ok().flatten().is_none() {
         let _ = child.kill();
     }
-    let _ = child.wait();
+    child.wait().ok()
+}
+
+fn show_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or(tauri::Error::WindowNotFound)?;
+    window.show()?;
+    window.unminimize()?;
+    window.set_focus()
+}
+
+fn install_tray(app: &tauri::App, backend: ManagedChild) -> tauri::Result<()> {
+    let show_window = MenuItem::with_id(app, TRAY_SHOW_WINDOW_ID, "显示窗口", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, TRAY_QUIT_ID, "退出程序", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_window, &quit])?;
+    let icon = app
+        .default_window_icon()
+        .cloned()
+        .ok_or_else(|| tauri::Error::AssetNotFound("default window icon".to_owned()))?;
+    let tray = TrayIconBuilder::new()
+        .icon(icon)
+        .tooltip("DeepSeek Harness")
+        .menu(&menu)
+        .show_menu_on_left_click(true);
+    #[cfg(target_os = "macos")]
+    let tray = tray.icon_as_template(true);
+    tray.on_menu_event(move |app, event| {
+        if event.id() == TRAY_SHOW_WINDOW_ID {
+            if let Err(error) = show_main_window(app) {
+                eprintln!("dsh desktop: cannot show the main window: {error}");
+            }
+        } else if event.id() == TRAY_QUIT_ID {
+            let _ = stop_backend(&backend);
+            app.exit(0);
+        }
+    })
+    .build(app)?;
+    Ok(())
 }
 
 /// Start the desktop host and keep the backend alive until the application exits.
@@ -241,6 +283,14 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                if let Err(error) = window.hide() {
+                    eprintln!("dsh desktop: cannot hide the main window: {error}");
+                }
+            }
+        })
         .setup(move |app| {
             let (log, log_path) = startup_log(app.handle()).unwrap_or_else(|| {
                 let path = PathBuf::from("desktop-startup.log unavailable");
@@ -283,6 +333,10 @@ pub fn run() {
                 return Err(error.into());
             }
             *setup_backend.lock().expect("backend mutex poisoned") = Some(child);
+            if let Err(error) = install_tray(app, Arc::clone(&setup_backend)) {
+                let _ = stop_backend(&setup_backend);
+                return Err(error.into());
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -292,7 +346,7 @@ pub fn run() {
                 event,
                 tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
             ) {
-                stop_backend(&exit_backend);
+                let _ = stop_backend(&exit_backend);
             }
         });
 }
@@ -306,8 +360,14 @@ fn tempfile_log() -> SharedLog {
 
 #[cfg(test)]
 mod tests {
-    use super::{mark_desktop_url, parse_ready_url, release_backend_command};
-    use std::path::{Path, PathBuf};
+    use super::{mark_desktop_url, parse_ready_url, release_backend_command, stop_backend};
+    use std::{
+        path::{Path, PathBuf},
+        process::{Command, Stdio},
+        sync::{Arc, Mutex},
+        thread,
+        time::Duration,
+    };
 
     #[test]
     fn release_backend_uses_a_relative_entry_from_its_install_directory() {
@@ -352,5 +412,28 @@ mod tests {
             mark_desktop_url(url).as_str(),
             format!("http://127.0.0.1:43123/#dsh-platform=tauri&dsh-os={os}")
         );
+    }
+
+    #[test]
+    fn stops_and_reaps_the_owned_backend() {
+        let child = Command::new(std::env::current_exe().expect("test executable"))
+            .args(["--exact", "tests::managed_child_fixture", "--ignored"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("managed child");
+        let backend = Arc::new(Mutex::new(Some(child)));
+
+        let status = stop_backend(&backend).expect("reaped child status");
+
+        assert!(!status.success());
+        assert!(backend.lock().expect("backend mutex").is_none());
+    }
+
+    #[test]
+    #[ignore = "spawned only by stops_and_reaps_the_owned_backend"]
+    fn managed_child_fixture() {
+        thread::sleep(Duration::from_secs(60));
     }
 }

@@ -17,8 +17,11 @@ use tauri::{
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 const READY_PREFIX: &str = "dsh web: ";
+const READY_LAN_PREFIX: &str = "(LAN: ";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 const TRAY_SHOW_WINDOW_ID: &str = "tray-show-window";
+const TRAY_OPEN_WEB_ID: &str = "tray-open-web";
+const TRAY_COPY_ADDRESS_ID: &str = "tray-copy-address";
 const TRAY_QUIT_ID: &str = "tray-quit";
 
 type ManagedChild = Arc<Mutex<Option<Child>>>;
@@ -137,6 +140,33 @@ fn parse_ready_url(line: &str) -> Option<Result<Url, String>> {
     Some(Ok(url))
 }
 
+/// Extract the optional LAN URL from a readiness line: `(LAN: http://... )`.
+fn parse_ready_lan_url(line: &str) -> Option<Result<Url, String>> {
+    let rest = line.strip_prefix(READY_PREFIX)?;
+    let start = rest.find(READY_LAN_PREFIX)?;
+    let mut raw = rest[start + READY_LAN_PREFIX.len()..]
+        .split_whitespace()
+        .next()
+        .unwrap_or_default();
+    if let Some(stripped) = raw.strip_suffix(')') {
+        raw = stripped;
+    }
+    let url = match Url::parse(raw) {
+        Ok(url) => url,
+        Err(error) => {
+            return Some(Err(format!(
+                "backend printed an invalid LAN readiness URL: {error}"
+            )))
+        }
+    };
+    if url.scheme() != "http" || url.port().is_none() {
+        return Some(Err(format!(
+            "backend LAN readiness URL is not an explicit HTTP port: {url}"
+        )));
+    }
+    Some(Ok(url))
+}
+
 fn mark_desktop_url(mut url: Url) -> Url {
     let os = if cfg!(target_os = "macos") {
         "macos"
@@ -149,7 +179,10 @@ fn mark_desktop_url(mut url: Url) -> Url {
     url
 }
 
-fn spawn_backend(app: &tauri::AppHandle, log: SharedLog) -> Result<(Child, Url), String> {
+fn spawn_backend(
+    app: &tauri::AppHandle,
+    log: SharedLog,
+) -> Result<(Child, Url, Option<Url>), String> {
     let backend = backend_command(app)?;
     log_line(
         &log,
@@ -163,7 +196,7 @@ fn spawn_backend(app: &tauri::AppHandle, log: SharedLog) -> Result<(Child, Url),
     command
         .current_dir(&backend.working_directory)
         .args(&backend.prefix_args)
-        .args(["web", "--no-open", "--port", "0"])
+        .args(["web", "--no-open", "--host", "0.0.0.0", "--port", "0"])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -183,50 +216,61 @@ fn spawn_backend(app: &tauri::AppHandle, log: SharedLog) -> Result<(Child, Url),
     drain(stderr, "stderr", Arc::clone(&log));
 
     let (sender, receiver) = mpsc::sync_channel(1);
+    let stdout_log = Arc::clone(&log);
     thread::spawn(move || {
         for line in BufReader::new(stdout).lines() {
             match line {
                 Ok(line) => {
                     let message = format!("dsh desktop stdout: {line}");
                     eprintln!("{message}");
-                    log_line(&log, &message);
+                    log_line(&stdout_log, &message);
                     if let Some(url) = parse_ready_url(&line) {
-                        let _ = sender.send(url);
+                        let lan_url = parse_ready_lan_url(&line).transpose();
+                        let _ = sender.send(url.map(|url| (url, lan_url)));
                     }
                 }
                 Err(error) => {
                     let message = format!("dsh desktop: failed to read backend stdout: {error}");
                     eprintln!("{message}");
-                    log_line(&log, &message);
+                    log_line(&stdout_log, &message);
                     break;
                 }
             }
         }
     });
 
-    match receiver.recv_timeout(STARTUP_TIMEOUT) {
-        Ok(Ok(url)) => Ok((child, mark_desktop_url(url))),
+    let (url, lan_url) = match receiver.recv_timeout(STARTUP_TIMEOUT) {
+        Ok(Ok(result)) => result,
         Ok(Err(error)) => {
             let _ = child.kill();
             let _ = child.wait();
-            Err(error)
+            return Err(error);
         }
         Err(RecvTimeoutError::Timeout) => {
             let status = child.try_wait().ok().flatten();
             let _ = child.kill();
             let _ = child.wait();
-            Err(format!(
+            return Err(format!(
                 "backend did not become ready within 60 seconds (status: {status:?})"
-            ))
+            ));
         }
         Err(RecvTimeoutError::Disconnected) => {
             let _ = child.kill();
             let status = child.wait().ok();
-            Err(format!(
+            return Err(format!(
                 "backend output closed before the readiness line (status: {status:?})"
-            ))
+            ));
         }
-    }
+    };
+    let lan_url = match lan_url {
+        Ok(Some(url)) => Some(url),
+        Ok(None) => None,
+        Err(error) => {
+            log_line(&log, &format!("dsh desktop: {error}"));
+            None
+        }
+    };
+    Ok((child, url, lan_url))
 }
 
 fn stop_backend(child: &ManagedChild) -> Option<ExitStatus> {
@@ -246,10 +290,41 @@ fn show_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     window.set_focus()
 }
 
-fn install_tray(app: &tauri::App, backend: ManagedChild) -> tauri::Result<()> {
+fn tray_web_label(url: &Url) -> String {
+    format!("Web端口:{}", url.port().expect("readiness URL port"))
+}
+
+fn copy_to_clipboard(text: &str) -> Result<(), String> {
+    let mut clipboard = arboard::Clipboard::new()
+        .map_err(|error| format!("cannot open the system clipboard: {error}"))?;
+    clipboard
+        .set_text(text.to_owned())
+        .map_err(|error| format!("cannot write the system clipboard: {error}"))
+}
+
+fn install_tray(
+    app: &tauri::App,
+    backend: ManagedChild,
+    web_url: Url,
+    lan_url: Option<Url>,
+) -> tauri::Result<()> {
     let show_window = MenuItem::with_id(app, TRAY_SHOW_WINDOW_ID, "显示窗口", true, None::<&str>)?;
+    let open_web = MenuItem::with_id(
+        app,
+        TRAY_OPEN_WEB_ID,
+        tray_web_label(&web_url),
+        true,
+        None::<&str>,
+    )?;
+    let copy_address = MenuItem::with_id(
+        app,
+        TRAY_COPY_ADDRESS_ID,
+        "复制访问地址",
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, TRAY_QUIT_ID, "退出程序", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show_window, &quit])?;
+    let menu = Menu::with_items(app, &[&show_window, &open_web, &copy_address, &quit])?;
     let icon = app
         .default_window_icon()
         .cloned()
@@ -265,6 +340,17 @@ fn install_tray(app: &tauri::App, backend: ManagedChild) -> tauri::Result<()> {
         if event.id() == TRAY_SHOW_WINDOW_ID {
             if let Err(error) = show_main_window(app) {
                 eprintln!("dsh desktop: cannot show the main window: {error}");
+            }
+        } else if event.id() == TRAY_OPEN_WEB_ID {
+            if let Err(error) = open::that(web_url.as_str()) {
+                eprintln!("dsh desktop: cannot open DSH Web in the default browser: {error}");
+            }
+        } else if event.id() == TRAY_COPY_ADDRESS_ID {
+            // Prefer the LAN URL, which another device on the network can open;
+            // fall back to the loopback URL for a local browser.
+            let address = lan_url.as_ref().unwrap_or(&web_url).as_str();
+            if let Err(error) = copy_to_clipboard(address) {
+                eprintln!("dsh desktop: cannot copy the DSH Web address: {error}");
             }
         } else if event.id() == TRAY_QUIT_ID {
             let _ = stop_backend(&backend);
@@ -297,7 +383,7 @@ pub fn run() {
                 let file = tempfile_log();
                 (file, path)
             });
-            let (child, url) = match spawn_backend(app.handle(), Arc::clone(&log)) {
+            let (child, url, lan_url) = match spawn_backend(app.handle(), Arc::clone(&log)) {
                 Ok(result) => result,
                 Err(error) => {
                     log_line(&log, &format!("dsh desktop startup failed: {error}"));
@@ -312,11 +398,15 @@ pub fn run() {
                     return Err(std::io::Error::other(error).into());
                 }
             };
-            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
-                .title("DeepSeek Harness")
-                .shadow(true)
-                .inner_size(1280.0, 820.0)
-                .min_inner_size(900.0, 620.0);
+            let window = WebviewWindowBuilder::new(
+                app,
+                "main",
+                WebviewUrl::External(mark_desktop_url(url.clone())),
+            )
+            .title("DeepSeek Harness")
+            .shadow(true)
+            .inner_size(1280.0, 820.0)
+            .min_inner_size(900.0, 620.0);
             #[cfg(target_os = "macos")]
             let window = window
                 .decorations(true)
@@ -333,7 +423,7 @@ pub fn run() {
                 return Err(error.into());
             }
             *setup_backend.lock().expect("backend mutex poisoned") = Some(child);
-            if let Err(error) = install_tray(app, Arc::clone(&setup_backend)) {
+            if let Err(error) = install_tray(app, Arc::clone(&setup_backend), url, lan_url) {
                 let _ = stop_backend(&setup_backend);
                 return Err(error.into());
             }
@@ -360,7 +450,10 @@ fn tempfile_log() -> SharedLog {
 
 #[cfg(test)]
 mod tests {
-    use super::{mark_desktop_url, parse_ready_url, release_backend_command, stop_backend};
+    use super::{
+        mark_desktop_url, parse_ready_lan_url, parse_ready_url, release_backend_command,
+        stop_backend, tray_web_label,
+    };
     use std::{
         path::{Path, PathBuf},
         process::{Command, Stdio},
@@ -389,6 +482,17 @@ mod tests {
     }
 
     #[test]
+    fn accepts_the_lan_readiness_url_when_present() {
+        let line =
+            "dsh web: http://127.0.0.1:43123/?token=abc (LAN: http://192.0.2.1:43123/?token=abc)";
+        let lan = parse_ready_lan_url(line)
+            .expect("readiness line")
+            .expect("valid LAN URL");
+        assert_eq!(lan.as_str(), "http://192.0.2.1:43123/?token=abc");
+        assert!(parse_ready_lan_url("dsh web: http://127.0.0.1:43123/?token=abc").is_none());
+    }
+
+    #[test]
     fn ignores_other_output_and_rejects_non_loopback_urls() {
         assert!(parse_ready_url("loader: ready").is_none());
         assert!(parse_ready_url("dsh web: https://example.com/")
@@ -412,6 +516,14 @@ mod tests {
             mark_desktop_url(url).as_str(),
             format!("http://127.0.0.1:43123/#dsh-platform=tauri&dsh-os={os}")
         );
+    }
+
+    #[test]
+    fn labels_the_web_tray_item_with_the_backend_port() {
+        let url = parse_ready_url("dsh web: http://127.0.0.1:43123")
+            .expect("readiness line")
+            .expect("valid URL");
+        assert_eq!(tray_web_label(&url), "Web端口:43123");
     }
 
     #[test]

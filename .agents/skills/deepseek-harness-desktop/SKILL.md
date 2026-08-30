@@ -18,12 +18,12 @@ The desktop work exists as four **local, unmerged commits** on top of the releas
 
 `apps/desktop` is a Tauri 2 application with **no compile-time window** and no separately installed Node requirement. The Rust host:
 
-1. Spawns the real built backend as `dsh web --no-open --port 0` on an operating-system-assigned loopback port so the backend does not open the system browser.
-2. Consumes the backend's readiness line (`dsh web: http://127.0.0.1:<port>`), validates it is an explicit HTTP loopback URL, and only then creates the WebView against that URL.
+1. Spawns the real built backend as `dsh web --no-open --host 0.0.0.0 --port 0` on an operating-system-assigned port (all interfaces, so the GUI is reachable from the LAN) without opening the system browser.
+2. Consumes the backend's readiness line (`dsh web: http://127.0.0.1:<port>/?token=... (LAN: http://<lan-ip>:<port>/?token=...)`), validates the loopback URL, keeps the LAN URL for the tray, and only then creates the WebView against that URL.
 3. Owns the child process through application exit: teardown kills a live child and waits for it.
 4. Stores `dsh-platform=tauri` and `dsh-os=<macos|windows|linux>` in the WebView URL fragment. The fragment survives the launch-token redirect without reaching the backend. The shared web layout renders the 48px platform titlebar **only** for those markers; plain browser launches keep the ordinary sidebar control and no window chrome.
 5. Ships a self-contained installer: the target platform's Node executable plus a symlink-free production dependency closure, staged by `scripts/prepare-desktop.ts`.
-6. Owns a native tray icon: closing the main window hides it, `显示窗口` restores it, and `退出程序` kills and waits for the backend before exiting.
+6. Owns a native tray icon: closing the main window hides it, `显示窗口` restores it, `DSH Web（端口：xxx）` opens the running web app in the default browser, `复制访问地址` copies the token-bearing LAN URL to the clipboard via the `arboard` crate, and `退出程序` kills and waits for the backend before exiting.
 
 Security posture: the WebView receives only window-control permissions (close, minimize, toggle-maximize, start-dragging), scoped to the owned `http://127.0.0.1:*` origin — no filesystem, shell, process, or application commands.
 
@@ -86,14 +86,14 @@ fn main() {
 
 `lib.rs` responsibilities (see `../../../apps/desktop/src-tauri/src/lib.rs` for the reference implementation):
 
-- Constants: `READY_PREFIX = "dsh web: "`, `STARTUP_TIMEOUT = 60s`.
+- Constants: `READY_PREFIX = "dsh web: "`, `READY_LAN_PREFIX = "(LAN: "`, `STARTUP_TIMEOUT = 60s`.
 - `backend_command()` resolution order: (a) `DSH_DESKTOP_BACKEND` env override → run it from the current working directory with no prefix args; (b) debug builds → `node` (or `DSH_DESKTOP_NODE`) running `apps/cli/lib/bin.js` from the repository root; (c) release → `resources/backend/node(.exe)` with **working directory = `resources/backend`** and the **relative** entry `node_modules/@deepseek-ai/dsh/lib/bin.js` (relative so Windows install paths containing spaces work).
-- `spawn_backend()`: always pass `--no-open`; `stdin` null, stdout/stderr piped; `CREATE_NO_WINDOW` (`0x0800_0000`) on Windows; continuously drain both streams into `desktop-startup.log` in the app log directory (fall back to a temp file); parse the readiness line from stdout; on timeout / early exit / closed output, kill the child and fail with a **native error dialog** (tauri-plugin-dialog, `blocking_show`) that shows the failure and the log path.
+- `spawn_backend()`: always pass `--no-open --host 0.0.0.0 --port 0` (all-interfaces bind so the LAN can reach the GUI); `stdin` null, stdout/stderr piped; `CREATE_NO_WINDOW` (`0x0800_0000`) on Windows; continuously drain both streams into `desktop-startup.log` in the app log directory (fall back to a temp file); parse the readiness line from stdout (loopback URL plus optional `(LAN: ...)` URL carrying the process token); on timeout / early exit / closed output, kill the child and fail with a **native error dialog** (tauri-plugin-dialog, `blocking_show`) that shows the failure and the log path.
 - `mark_desktop_url()`: store `dsh-platform=tauri` and `dsh-os` (`macos` | `windows` | `linux` from compile target) in the URL fragment via `set_fragment`; browser authentication redirects the token-bearing request to `/` while retaining that client-only fragment.
 - Window: title "DeepSeek Harness", `shadow(true)`, `inner_size(1280, 820)`, `min_inner_size(900, 620)`. macOS: `decorations(true)` + `TitleBarStyle::Overlay` + `hidden_title(true)` + `traffic_light_position(12, 26)`. Windows/Linux: `decorations(false)`.
-- Tray: build it from the default bundled application icon with native menu items `显示窗口` and `退出程序`; a main-window close request prevents destruction and hides the window; show restores, unminimizes, and focuses it; quit synchronously kills and waits for the `ManagedChild` before calling `app.exit(0)`.
+- Tray: build it from the default bundled application icon with native menu items `显示窗口`, `DSH Web（端口：xxx）`, `复制访问地址`, and `退出程序`; `spawn_backend` returns the plain readiness URL plus the optional LAN URL, and setup marks the loopback URL for the WebView so the tray keeps the unmarked URLs; a main-window close request prevents destruction and hides the window; show restores, unminimizes, and focuses it; `DSH Web（端口：xxx）` opens the loopback URL in the default browser via the `open` crate; `复制访问地址` writes the LAN URL (falling back to the loopback URL) to the clipboard via the `arboard` crate; quit synchronously kills and waits for the `ManagedChild` before calling `app.exit(0)`.
 - Lifecycle: `ManagedChild = Arc<Mutex<Option<Child>>>`; tray quit and `RunEvent::Exit | ExitRequested` kill a live child and wait. The second cleanup is an idempotent no-op because the first takes the child from the option.
-- Keep the unit tests: release backend command uses a relative entry from an install directory containing spaces; readiness parsing accepts the loopback line and rejects non-loopback URLs; the marker URL is exact.
+- Keep the unit tests: release backend command uses a relative entry from an install directory containing spaces; readiness parsing accepts the loopback line and rejects non-loopback URLs; the LAN URL parsing accepts `(LAN: ...)` and ignores its absence; the marker URL is exact; the tray label carries the backend port.
 
 ### 3. Staging script and repository wiring
 
@@ -152,13 +152,13 @@ pnpm run desktop:prepare                       # stages .dsh-desktop, verifies C
 pnpm run desktop:build                         # per target OS; Windows -> NSIS x64-setup.exe
 ```
 
-`desktop:build` must run **on each target operating system** so Node and native dependencies match the installer. Manual smoke per platform: titlebar renders 48px with the platform controls; `Cmd/Ctrl+B` toggles the sidebar; macOS fullscreen releases the traffic-light inset; Windows shows wordmark/whale; closing the main window hides it; the tray restores it; tray quit terminates both the backend and desktop process.
+`desktop:build` must run **on each target operating system** so Node and native dependencies match the installer. Manual smoke per platform: titlebar renders 48px with the platform controls; `Cmd/Ctrl+B` toggles the sidebar; macOS fullscreen releases the traffic-light inset; Windows shows wordmark/whale; closing the main window hides it; the tray restores it; `DSH Web（端口：xxx）` opens the web app in the default browser; `复制访问地址` copies the LAN URL with its token so another device can open the GUI; tray quit terminates both the backend and desktop process.
 
 ## Red lines
 
 - Browser launches (no `dsh-platform` marker) keep the ordinary sidebar control and must never render desktop chrome.
 - Never widen Tauri permissions beyond the four window controls on the loopback origin; the backend continues to own Host-header trust, API routing, persistence, credentials, and sandbox policy.
 - Keep the NSIS default on Windows; do not switch to MSI without updating the README and the Agent Note (WiX VBSCRIPT + SemVer version constraints).
-- The host runs the real `dsh web --no-open --port 0` backend — never a mock; installers must stay self-contained (bundled Node, no user Node/pnpm).
+- The host runs the real `dsh web --no-open --host 0.0.0.0 --port 0` backend — never a mock; installers must stay self-contained (bundled Node, no user Node/pnpm). The all-interfaces bind is deliberate LAN exposure; browser-session authentication and the process token are the only fences, and the clipboard LAN URL must keep its token.
 - Tray quit must synchronously kill and wait for the owned backend before the desktop process exits; window close only hides the reusable main WebView.
 - Do not commit credentials or signing secrets; signing/notarization stays in CI or external configuration.

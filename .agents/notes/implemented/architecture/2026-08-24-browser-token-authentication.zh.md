@@ -20,7 +20,7 @@ HMAC 密钥是 `ctx.credentials` 中位于 `client-connection/browser-session` �
 
 页内 Web Worker preview 不暴露网络 socket。其由页面持有的 `postMessage` tunnel 先进入真实 route，收到 401 或 403 后再经 worker 本地 fetch handler 重试。这样既保留 Connection interceptor，又把认证绕过限制在创建 Host worker 的页面内。
 
-随附 CLI 继续拒绝 `--host 0.0.0.0`。认证不代表支持网络部署、TLS、转发 header 解释或代理配置。
+随附 CLI 接受 `--host 0.0.0.0`，绑定所有网络接口，使局域网可以访问正在运行的 Web 应用。认证不代表 TLS 或代理配置：浏览器会话 cookie 因为随附服务器使用 loopback HTTP 而省略 `Secure`，因此运营者若通过未加密网络暴露同一 authority，cookie 会明文传输。启动时打印的 LAN URL 携带进程 token，浏览器信任栅栏包含采样到的 LAN 字面量，所以网络设备只有凭该 token 才能打开 GUI。
 
 ## 验证
 
